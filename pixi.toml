@@ -1,0 +1,38 @@
+[workspace]
+authors = ["Martin Bari Garnier <mabagar@protonmail.com>"]
+channels = ["conda-forge"]
+name = "mdproj"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[dependencies]
+python = "3.11.*"
+numpy = "*"
+
+[pypi-dependencies]
+mdproj-common = { path = "packages/common", editable = true }
+
+# ---- build / COBY ----
+[feature.build.dependencies]
+pip = "*"
+
+[feature.build.pypi-dependencies]
+mdproj-build = { path = "packages/build", editable = true }
+COBY = "*"
+matplotlib = "*"
+
+# ---- analysis / MDAnalysis ----
+[feature.analysis.dependencies]
+jupyterlab = "*"
+rdkit = ">=2026.3.5,<2027"
+matplotlib = "*"
+tqdm = "*"
+
+[feature.analysis.pypi-dependencies]
+mdproj-analysis = { path = "packages/analysis", editable = true }
+mdanalysis = { git = "https://github.com/MDAnalysis/mdanalysis.git", subdirectory = "package" }
+lipyphilic = ">=0.12.1,<0.13"
+
+[environments]
+build    = ["build"]
+analysis = ["analysis"]
