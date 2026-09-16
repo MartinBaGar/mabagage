@@ -5120,11 +5120,11 @@ packages:
   - uharfbuzz>=0.45.0 ; extra == 'all'
   requires_python: '>=3.10'
 - pypi: packages/analysis
-  name: mdproj-analysis
+  name: mbg-analysis
   requires_python: '>=3.11'
 - pypi: packages/build
-  name: mdproj-build
+  name: mbg-build
   requires_python: '>=3.11'
 - pypi: packages/common
-  name: mdproj-common
+  name: mbg-common
   requires_python: '>=3.11'
