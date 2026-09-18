@@ -33,6 +33,15 @@ mbg-analysis = { path = "packages/analysis", editable = true }
 mdanalysis = { git = "https://github.com/MDAnalysis/mdanalysis.git", subdirectory = "package" }
 lipyphilic = ">=0.12.1,<0.13"
 
+# ---- visuals / Biotite ----
+[feature.visuals.dependencies]
+pymol-open-source = "*"
+
+[feature.visuals.pypi-dependencies]
+mbg-visuals = { path = "packages/visuals", editable = true }
+biotite = "*"
+
 [environments]
 build    = ["build"]
 analysis = ["analysis"]
+visuals = ["visuals"]
