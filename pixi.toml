@@ -20,6 +20,7 @@ pip = "*"
 mbg-build = { path = "packages/build", editable = true }
 COBY = "*"
 matplotlib = "*"
+tqdm = "*"
 
 # ---- analysis / MDAnalysis ----
 [feature.analysis.dependencies]
@@ -40,6 +41,7 @@ pymol-open-source = "*"
 [feature.visuals.pypi-dependencies]
 mbg-visuals = { path = "packages/visuals", editable = true }
 biotite = "*"
+ipython = "*"
 
 [environments]
 build    = ["build"]

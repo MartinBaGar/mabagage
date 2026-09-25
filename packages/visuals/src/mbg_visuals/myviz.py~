@@ -1,0 +1,384 @@
+import os
+from pymol import cmd, util
+from pymol.cgo import *
+
+# --- CONFIGURATION ---
+# Add your lipid residue names and their desired color functions here
+LIPID_MAP = {
+    "PIPC": "cbag",  # Carbon By Atom Green
+    "PWPC": "cbac",  # Cyan
+    "DOPS": "cbam",  # Magenta
+    "DSPS": "cbam",  # Magenta
+    "IXPS": "cbam",  # Magenta
+    "OEPS": "cbam",  # Magenta
+    "WXPS": "cbay",  # Yellow
+    "SITO": "cbas",  # Salmon
+    "SXGA": "cbaw",  # White
+    "SPGA": "cbaw",  # Blue
+    "SSGA": "cbaw",  # Update
+    "CER1": "cbaw",  # White
+    "CER2": "cbab",  # Blue
+}
+
+LIPID_BONDS = {
+    "GIA0": [("B0", "A1"), ("B1", "A2")],
+    "GIA2": [("B0", "A1"), ("B1", "A2")],
+    "GIB0": [("B0", "A1"), ("B1", "A2"), ("B2", "A3")],
+}
+
+# Define RGB for maximum precision
+cmd.set_color("cb_vermillion", [0.8, 0.4, 0.0])
+cmd.set_color("cb_skyblue", [0.35, 0.7, 0.9])
+cmd.set_color("cb_bluegreen", [0.0, 0.6, 0.5])
+cmd.set_color("cb_amber", [0.9, 0.6, 0.0])
+
+
+# --- INTERNAL HELPERS (Private) ---
+def _setup_spheres(selection):
+    """Internal helper to standardize sphere scales for lipids."""
+    cmd.show("spheres", selection)
+    cmd.set("sphere_scale", 0.7, f"({selection}) and name H*")
+    cmd.set("sphere_scale", 0.9, f"({selection}) and not name H*")
+
+
+# --- PUBLIC COMMANDS ---
+@cmd.extend
+def color_lipids(selection="not solvent and not polymer.protein"):
+    """
+    Colors the bilayer by residue type using the LIPID_MAP palette.
+    Usage: color_lipids [selection]
+    """
+    _setup_spheres(selection)
+
+    found_any = False
+    for resn, color_func in LIPID_MAP.items():
+        target = f"({selection}) and resn {resn}"
+        if cmd.count_atoms(target) > 0:
+            # getattr lets us call util.cbag() using the string "cbag"
+            getattr(util, color_func)(target, _self=cmd)
+            found_any = True
+
+    if not found_any:
+        print(" Warning: No recognized lipids found in selection.")
+    else:
+        print(" Lipids colored successfully.")
+
+
+@cmd.extend
+def highlight_insertion(
+    residues="133+195+197-198", protein_sel="polymer.protein"
+):
+    """
+    Focuses on the protein-membrane interface.
+    Usage: highlight_insertion [residues], [protein_selection]
+    """
+    # 1. Clean up view
+    _setup_spheres(f"not solvent and not {protein_sel}")
+
+    # 2. Protein representation
+    cmd.dss(protein_sel)
+    cmd.show_as("cartoon", protein_sel)
+
+    # 3. Highlight specific residues
+    sel_name = "insertion_site"
+    cmd.select(sel_name, f"({protein_sel}) and resi {residues}")
+    cmd.show("sticks", sel_name)
+    cmd.color("magentas", sel_name)
+
+    # 4. Focus
+    cmd.zoom(sel_name, buffer=8)
+    print(f" Focused on residues {residues} in {protein_sel}.")
+
+
+@cmd.extend
+def add_axes():
+    w = 0.06  # cylinder width
+    l = 0.75  # cylinder length
+    h = 0.25  # cone hight
+    d = w * 1.618  # cone base diameter
+
+    obj = [
+        CYLINDER,
+        0.0,
+        0.0,
+        0.0,
+        l,
+        0.0,
+        0.0,
+        w,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        CYLINDER,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        l,
+        0.0,
+        w,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        CYLINDER,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        l,
+        w,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        CONE,
+        l,
+        0.0,
+        0.0,
+        h + l,
+        0.0,
+        0.0,
+        d,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        CONE,
+        0.0,
+        l,
+        0.0,
+        0.0,
+        h + l,
+        0.0,
+        d,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        1.0,
+        CONE,
+        0.0,
+        0.0,
+        l,
+        0.0,
+        0.0,
+        h + l,
+        d,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+    ]
+
+    cmd.load_cgo(obj, "axes")
+
+
+@cmd.extend
+def vid_med():
+    cmd.hide("everything", "resn W resn ION")
+    pic_med()
+    # --- Sphere Colors (High Contrast) ---
+    cmd.set("sphere_color", "cb_vermillion", "e. A*")
+    cmd.set("sphere_color", "cb_skyblue", "e. B*")
+    cmd.set("sphere_color", "cb_bluegreen", "e. C*")
+    cmd.set("sphere_color", "cb_amber", "e. D*")
+    cmd.set("sphere_color", "yelloworange", "e. PO4")
+    cmd.set("sphere_color", "black", "e. VS*")
+
+
+@cmd.extend
+def prep_for_movie():
+    pic_med()
+    # --- Sphere Colors (High Contrast) ---
+    cmd.hide("sticks")
+    cmd.set("sphere_color", "cb_vermillion", "e. A*")
+    cmd.set("sphere_color", "cb_skyblue", "e. B*")
+    cmd.set("sphere_color", "cb_bluegreen", "e. C*")
+    cmd.set("sphere_color", "cb_amber", "e. D*")
+    cmd.set("sphere_color", "yelloworange", "e. PO4")
+    cmd.set("sphere_color", "black", "e. VS*")
+
+    cmd.set("sphere_transparency", 0.8, "resn W resn ION")
+    cmd.set("sphere_scale", 0.3, "resn W resn ION")
+
+
+@cmd.extend
+def pic_pretty():
+    """Quick matte render for presentations."""
+    cmd.bg_color("white")
+    cmd.set("ray_opaque_background", "off")
+    cmd.set("antialias", 1)
+
+    # Matte settings
+    cmd.set("ambient", 0.4)
+    cmd.set("direct", 0.2)
+    cmd.set("specular", 0)
+    cmd.set("ray_shadow", 0)
+    cmd.set("ray_trace_mode", 0)
+    cmd.ray()
+
+
+@cmd.extend
+def pic_med():
+    """Matte finish with depth/shadows, no outlines."""
+    cmd.bg_color("white")
+    cmd.set("ray_opaque_background", "off")
+    cmd.color("red")
+    cmd.set("antialias", 2)
+
+    # Matte settings
+    cmd.set("ambient", 0.5)
+    cmd.set("direct", 0.5)
+    cmd.set("specular", 0.1)
+    cmd.set("spec_reflect", 0)
+    cmd.set("shininess", 0)
+
+    cmd.set("ray_shadow", 1)
+    cmd.set("ray_trace_mode", 0)
+
+
+@cmd.extend
+def pic_pub():
+    """Professional Matte: High-quality geometry with thin outlines."""
+    cmd.bg_color("white")
+    cmd.set("ray_opaque_background", "off")
+    cmd.set("antialias", 2)
+
+    # Ultra-Matte Surface Math
+    cmd.set("ambient", 0.5)
+    cmd.set("direct", 0.45)
+    cmd.set("specular", 0.05)
+    cmd.set("spec_reflect", 0)
+    cmd.set("shininess", 0)
+
+    # High-End Geometry
+    cmd.set("cartoon_sampling", 14)
+    cmd.set("ribbon_sampling", 14)
+
+    # Outlines that won't drown out small details
+    cmd.set("ray_trace_mode", 1)
+    cmd.set("ray_trace_gain", 0.2)
+    cmd.set("ray_trace_depth_factor", 0.1)
+    cmd.set("ray_shadow", 1)
+
+    cmd.ray(2400, 2400)
+
+
+@cmd.extend
+def show_beads():
+    """Display labels indicating the bead names"""
+    cmd.label("e. A*+B*+C*+VS*+D*", "'%s' % (name)")
+    cmd.set("label_position", (0, 0, 20))
+    cmd.set("label_size", 25)
+    cmd.set("label_color", "black")
+    cmd.set("sphere_transparency", 0.6)
+    cmd.set("sphere_scale", 0.4)
+
+
+@cmd.extend
+def show_bonds():
+    """Display labels indicating the bead names"""
+    for lipid, pairs in LIPID_BONDS.items():
+        for pair in pairs:
+            bond_name = f"{lipid}_{pair[0]}-{pair[1]}"
+            cmd.distance(
+                bond_name,
+                f"{lipid} and name {pair[0]}",
+                f"{lipid} and name {pair[1]}",
+            )
+        cmd.group(f"{lipid}_group", f"{lipid}*")
+
+    cmd.set("dash_gap", 0)
+    cmd.set("dash_round_ends", 0)
+    cmd.set("dash_width", 10)
+    cmd.hide("labels")
+    cmd.label("e. A*+B*+C*+VS*+D*", "'%s' % (name)")
+
+    # --- Sphere Colors (High Contrast) ---
+    cmd.set("sphere_color", "cb_vermillion", "e. A*")
+    cmd.set("sphere_color", "cb_skyblue", "e. B*")
+    cmd.set("sphere_color", "cb_bluegreen", "e. C*")
+    cmd.set("sphere_color", "cb_amber", "e. D*")
+    cmd.set("sphere_color", "black", "e. VS*")
+
+    # --- Label Colors (Maximum Contrast vs Sphere) ---
+    # Dark text for light spheres, White text for dark spheres
+    cmd.set("label_color", "black", "e. A*")  # Black on Vermillion
+    cmd.set("label_color", "black", "e. B*")  # Black on Sky Blue
+    cmd.set("label_color", "white", "e. C*")  # White on Blue-Green
+    cmd.set("label_color", "black", "e. D*")  # Black on Amber
+    cmd.set("label_color", "white", "e. VS*")  # White on Black
+
+    # --- Global Settings ---
+    cmd.set("label_position", (0, 0, 10))
+    cmd.set("label_size", 20)
+    cmd.set("label_font_id", 7)  # Bold font for better readability
+    cmd.set("sphere_transparency", 0.6)
+    cmd.set("sphere_scale", 0.3)
+    cmd.set("sphere_scale", 0.2, "e. VS*")
+
+
+@cmd.extend
+def my_help():
+    """
+    Displays this help menu.
+    """
+    print("\n" + "=" * 50)
+    print(" LAB VISUALIZATION LIBRARY ".center(50, " "))
+    print("=" * 50)
+
+    # List of functions to document
+    commands = [color_lipids, highlight_insertion, my_help, reload_lib]
+
+    for func in commands:
+        name = func.__name__.ljust(20)
+        # Use the first line of the docstring as the description
+        desc = (
+            func.__doc__.strip().split("\n")[0]
+            if func.__doc__
+            else "No description."
+        )
+        print(f" {name} : {desc}")
+
+    print("=" * 50 + "\n")
+
+
+@cmd.extend
+def reload_lib():
+    """
+    Reloads this script after you make changes to the code.
+    """
+    script_path = os.path.abspath(__file__)
+    cmd.run(script_path)
+    print(f" Reloaded: {script_path}")
+
+
+# --- INITIALIZATION ---
+# This runs only when the file is first loaded or reloaded
+# if __name__ == "__main__" or "pymol" in globals():
+#     my_help()
+
+#     print
