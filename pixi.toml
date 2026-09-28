@@ -41,9 +41,6 @@ pymol-open-source = "*"
 [feature.visuals.pypi-dependencies]
 mbg-visuals = { path = "packages/visuals", editable = true }
 
-[feature.visuals.tasks]
-pymol-nvidia = "__GLX_VENDOR_LIBRARY_NAME=nvidia QT_QPA_PLATFORM=xcb pymol"
-
 [environments]
 build    = ["build"]
 analysis = ["analysis"]
