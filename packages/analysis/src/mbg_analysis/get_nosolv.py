@@ -1,3 +1,4 @@
+import string
 from pathlib import Path
 from typing import Union, Optional
 
@@ -12,27 +13,10 @@ def get_nosolv(
     trajectory: Optional[str] = None,
     universe: Optional[Universe] = None,
     output: Optional[Union[str, Path]] = None,
+    traj_slice: Optional[slice] = None,
 ) -> AtomGroup:
     """
     Get an AtomGroup containing no solvent or ions.
-
-    Parameters
-    ----------
-    topology, trajectory, universe :
-        As before — provide either a topology (+ optional trajectory) or
-        an existing Universe.
-    output :
-        Optional path/prefix to save the solvent-free system to disk.
-        If provided, writes:
-          - "{output}.gro"  (solvent-free topology/first frame)
-          - "{output}.xtc"  (solvent-free trajectory, only written if
-            the universe has multiple frames)
-        The extensions are added automatically.
-
-    Returns
-    -------
-    AtomGroup
-        Solvent-free AtomGroup (still linked to the original universe).
     """
     if universe is None:
         if trajectory is not None:
@@ -52,16 +36,40 @@ def get_nosolv(
 
     if output is not None:
         output = Path(output)
-        gro_path = output.with_suffix(".gro")
-        nosolv_ag.write(str(gro_path))
-        print(f"Wrote solvent-free topology to: {gro_path}")
+        
+        # --- CHAIN ID ASSIGNMENT  ---
+        if not hasattr(universe.atoms, "chainIDs"):
+            universe.add_TopologyAttr("chainIDs")
+            
+        alphabet = string.ascii_uppercase + string.ascii_lowercase + string.digits
+        
+        # Use GROMACS's native segments instead of guessing bonds via fragments
+        protein_ag = nosolv_ag.select_atoms("protein")
+        for i, seg in enumerate(protein_ag.segments):
+            # Assign the chain ID only to the protein atoms within this segment
+            (seg.atoms & protein_ag).chainIDs = alphabet[i % len(alphabet)]
+            
+        print(f"Assigned Chain IDs across {len(protein_ag.segments)} protein segment(s).")
+        # ---------------------------------------------------
 
-        n_frames = universe.trajectory.n_frames
+        pdb_path = output.with_suffix(".pdb")
+        nosolv_ag.write(str(pdb_path))
+        print(f"Wrote solvent-free topology to: {pdb_path}")
+
+        # --- SLICING LOGIC ---
+        if traj_slice is not None:
+            frames_to_write = universe.trajectory[traj_slice]
+            n_frames = len(frames_to_write)
+        else:
+            frames_to_write = universe.trajectory
+            n_frames = universe.trajectory.n_frames
+        # ---------------------
+
         if n_frames > 1:
             xtc_path = output.with_suffix(".xtc")
             with mda.Writer(str(xtc_path), nosolv_ag.n_atoms) as W:
                 for ts in tqdm(
-                    universe.trajectory,
+                    frames_to_write,
                     total=n_frames,
                     desc=f"Writing {xtc_path.name}",
                     unit="frame",
@@ -69,6 +77,6 @@ def get_nosolv(
                     W.write(nosolv_ag)
             print(f"Wrote solvent-free trajectory ({n_frames} frames) to: {xtc_path}")
         else:
-            print("Universe has only 1 frame — skipping trajectory (.xtc) output.")
+            print(f"Only {n_frames} frame(s) selected — skipping trajectory (.xtc) output.")
 
     return nosolv_ag
