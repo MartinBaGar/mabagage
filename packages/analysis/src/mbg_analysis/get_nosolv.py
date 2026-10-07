@@ -36,7 +36,9 @@ def get_nosolv(
 
     if output is not None:
         output = Path(output)
-        
+        parent = output.parent
+        parent.mkdir(parents=True, exist_ok=True)
+
         # --- CHAIN ID ASSIGNMENT  ---
         if not hasattr(universe.atoms, "chainIDs"):
             universe.add_TopologyAttr("chainIDs")
