@@ -1,6 +1,5 @@
 import string
 from pathlib import Path
-from typing import Union, Optional
 
 import MDAnalysis as mda
 from MDAnalysis.core.universe import Universe
@@ -9,11 +8,11 @@ from tqdm import tqdm
 
 
 def get_nosolv(
-    topology: Optional[Union[str, Path]] = None,
-    trajectory: Optional[str] = None,
-    universe: Optional[Universe] = None,
-    output: Optional[Union[str, Path]] = None,
-    traj_slice: Optional[slice] = None,
+    topology: str | Path | None = None,
+    trajectory: str | None = None,
+    universe: Universe | None = None,
+    output: str | Path | None = None,
+    traj_slice: slice | None = None,
 ) -> AtomGroup:
     """
     Get an AtomGroup containing no solvent or ions.

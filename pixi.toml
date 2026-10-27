@@ -27,13 +27,15 @@ tqdm = "*"
 jupyterlab = "*"
 rdkit = ">=2026.3.5,<2027"
 matplotlib = "*"
+seaborn = "*"
 tqdm = "*"
 
 [feature.analysis.pypi-dependencies]
 mbg-analysis = { path = "packages/analysis", editable = true }
 mdanalysis = { git = "https://github.com/MDAnalysis/mdanalysis.git", subdirectory = "package" }
 lipyphilic = ">=0.12.1,<0.13"
-h5py = "*"
+biotite = "*"
+gemmi = ">=0.7.5, <0.8"
 
 # ---- visuals / PyMOL ----
 [feature.visuals.dependencies]
