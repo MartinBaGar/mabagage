@@ -5,6 +5,10 @@ import warnings
 import gemmi
 import numpy as np
 
+# gemmi.FlatStructure (used by MDAnalysis' MMCIFParser) rejects
+# subchain (label_asym_id) names of 8 or more characters.
+MAX_LABEL_LEN = 7
+
 
 def write_cif(atomgroup, path):
     """Write the current frame; return global atom indices in file order.
@@ -14,16 +18,19 @@ def write_cif(atomgroup, path):
       - Polymer residue names are recognized by MDAnalysis.
       - Selected polymer residues define the complete sequence.
       - Each lipid/small molecule occupies one residue.
-      - Residue identifiers are unique within each author chain
-        (checked: a ValueError is raised otherwise).
+      - Residue identifiers of non-polymer residues are unique within
+        each author chain (checked: a ValueError is raised otherwise).
+      - Polymer chain IDs are at most 7 characters (checked).
       - No solvent is included.
 
-    Preserves chainIDs, resids, residue names, and bead names.
-    Does not export Martini masses, force-field types, or bonds.
+    Preserves chainIDs (auth_asym_id), resids (auth_seq_id), residue
+    names, and bead names. Polymer label_asym_id equals the chain ID;
+    non-polymer label_asym_id is a short unique ID (L1, L2, ...), one per
+    molecule. Does not export Martini masses, force-field types, or bonds.
 
     Raises ValueError for empty selections, missing/empty chain IDs,
-    empty residue or bead names, non-finite coordinates, and duplicate
-    label_asym_id values.
+    empty residue or bead names, non-finite coordinates, overlong polymer
+    chain IDs, and duplicate non-polymer residue identifiers.
     """
     ag = atomgroup.atoms
 
@@ -44,14 +51,15 @@ def write_cif(atomgroup, path):
     resids = ag.resids
     positions = ag.positions
 
-    if any(not str(c).strip() for c in np.unique(chain_ids.astype(str))):
-        n_bad = int(np.sum(np.char.strip(chain_ids.astype(str)) == ""))
+    chain_str = chain_ids.astype(str)
+    if np.any(np.char.strip(chain_str) == ""):
+        n_bad = int(np.sum(np.char.strip(chain_str) == ""))
         raise ValueError(f"{n_bad} selected atoms have an empty chain ID.")
 
-    if any(not str(r).strip() for r in np.unique(resnames.astype(str))):
+    if np.any(np.char.strip(resnames.astype(str)) == ""):
         raise ValueError("Some selected atoms have an empty residue name.")
 
-    if any(not str(n).strip() for n in np.unique(names.astype(str))):
+    if np.any(np.char.strip(names.astype(str)) == ""):
         raise ValueError("Some selected atoms have an empty bead name.")
 
     if not np.all(np.isfinite(positions)):
@@ -143,10 +151,29 @@ def write_cif(atomgroup, path):
     structure.deduplicate_entities()
 
     # ---- Rename label instances -------------------------------------------
-    # renamed: old Gemmi subchain -> new label_asym_id
-    # owner:   new label_asym_id  -> old Gemmi subchain (collision check)
-    renamed = {}
-    owner = {}
+    # Polymers: label_asym_id = chain ID.
+    # Non-polymers: short unique label (L1, L2, ...), one per molecule.
+    # The readable identifiers stay in auth_asym_id / auth_seq_id.
+    polymer_names = {
+        chain.name
+        for chain in structure[0]
+        for residue in chain
+        if residue.entity_type == gemmi.EntityType.Polymer
+    }
+    too_long_chains = sorted(
+        {c for c in np.unique(chain_str) if len(c) > MAX_LABEL_LEN}
+    )
+    
+    if too_long_chains:
+        raise ValueError(
+            f"Chain IDs longer than {MAX_LABEL_LEN} characters are not "
+            f"supported by gemmi.FlatStructure (MDAnalysis MMCIFParser): "
+            f"{too_long_chains}. Rename them before exporting."
+        )
+
+    renamed = {}       # old Gemmi subchain -> new label_asym_id
+    seen_auth = set()  # (chain, resid) of non-polymer residues
+    counter = 0
 
     for chain in structure[0]:
         for residue in chain:
@@ -154,15 +181,29 @@ def write_cif(atomgroup, path):
 
             if residue.entity_type == gemmi.EntityType.Polymer:
                 new = chain.name
+            elif old in renamed:
+                new = renamed[old]
             else:
-                new = f"{chain.name}_{residue.seqid.num}"
+                key = (chain.name, residue.seqid.num)
+                if key in seen_auth:
+                    raise ValueError(
+                        f"Duplicate residue identifier {key} for non-polymer "
+                        f"residue {residue.name!r}: resids are not unique "
+                        f"in chain {chain.name!r}."
+                    )
+                seen_auth.add(key)
 
-            if owner.setdefault(new, old) != old:
-                raise ValueError(
-                    f"Duplicate label_asym_id {new!r}: residue identifiers "
-                    f"are not unique in chain {chain.name!r} "
-                    f"(resid {residue.seqid.num}, residue {residue.name!r})."
-                )
+                counter += 1
+                new = f"L{counter}"
+                while new in polymer_names:
+                    counter += 1
+                    new = f"L{counter}"
+
+                if len(new) > MAX_LABEL_LEN:
+                    raise ValueError(
+                        f"Too many non-polymer molecules for "
+                        f"{MAX_LABEL_LEN}-character label IDs."
+                    )
 
             renamed[old] = new
             residue.subchain = new

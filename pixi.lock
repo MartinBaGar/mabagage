@@ -279,7 +279,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/webencodings-0.5.1-pyhd8ed1ab_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/websocket-client-1.9.2-pyh5ded981_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
-      - pypi: git+https://github.com/MDAnalysis/mdanalysis.git?subdirectory=package#8b8875c73782c8c7f9710f6f6b9ae715bd5ad1bb
+      - pypi: git+https://github.com/MDAnalysis/mdanalysis.git?subdirectory=package#ae9ff4b738606ba1e7c18a8a9b99a8a87eb69f74
       - pypi: https://files.pythonhosted.org/packages/18/53/84099323c2ec4be98d935f63c033ac4151ee83836ca1050ede3b3aadf155/joblib-1.6.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2c/27/9768d918c86ad720ea805ce21cb7ae33ab77e8ca92486ff3c2af5dd5e60b/griddataformats-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/30/29/cd367ef73ec903c47d75b521965105ae2e5f57897ff7450af8201f3a17b5/parsnip_cif-1.0.0-py3-none-any.whl
@@ -5961,9 +5961,9 @@ packages:
   run_exports: {}
   size: 24190
   timestamp: 1779159948016
-- pypi: git+https://github.com/MDAnalysis/mdanalysis.git?subdirectory=package#8b8875c73782c8c7f9710f6f6b9ae715bd5ad1bb
+- pypi: git+https://github.com/MDAnalysis/mdanalysis.git?subdirectory=package#ae9ff4b738606ba1e7c18a8a9b99a8a87eb69f74
   name: mdanalysis
-  version: 2.11.0.dev0
+  version: 2.12.0.dev0
   requires_dist:
   - numpy>=1.26.0
   - griddataformats>=0.4.0
@@ -5984,6 +5984,7 @@ packages:
   - pyedr>=0.7.0 ; extra == 'extra-formats'
   - pytng>=0.2.3 ; extra == 'extra-formats'
   - gsd>3.0.0 ; extra == 'extra-formats'
+  - gemmi>=0.7.5 ; extra == 'extra-formats'
   - rdkit>=2022.9.1 ; extra == 'extra-formats'
   - imdclient>=0.2.2 ; extra == 'extra-formats'
   - biopython>=1.80 ; extra == 'analysis'
