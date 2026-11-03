@@ -2,22 +2,39 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 
-def plot_contact_ranges(ranges, stride=1, dt_ps=None, xlim=None, filename=None):
+def plot_contact_ranges(
+        ranges,
+        stride=1,
+        dt_ps=None,
+        xlim=None,
+        protein_colors=None,
+        filename=None,
+):
     """
     Timeline plot: one row per (ligand, protein) pair, one bar per range.
 
-    ranges   : dictionary from contact_ranges()
-    stride   : the stride you used in ligand_contacts()
-    dt_ps    : time between two trajectory frames in ps (u.trajectory.dt).
-               If given, the x axis is in ns, otherwise in frames.
-    filename : if given, the figure is saved there (e.g. "ranges.png")
-    xlim     : (min, max) for the x axis, in the same units as the axis
-               (ns if dt_ps is given, otherwise frames). Use the same value
-               for several plots to make them comparable.
-
+    Parameters
+    ----------
+    ranges : dict
+        Dictionary from contact_ranges().
+    stride : int
+        Stride used in ligands_contacts().
+    dt_ps : float, optional
+        Time between trajectory frames in ps. If provided, the x-axis
+        is converted to ns.
+    xlim : tuple, optional
+        Limits in ns when dt_ps is provided, otherwise in frames.
+    protein_colors : dict, optional
+        Mapping from protein/chain ID to a Matplotlib color, for example:
+        {"D": "tab:blue", "E": "#E69F00"}.
+        Missing proteins receive colors from the tab10 colormap.
+    filename : str or Path, optional
+        Output image filename.
     """
-    rows = sorted(ranges)   # one row per (ligand_name, protein_name)
+    rows = sorted(ranges)
+    protein_names = sorted({protein_name for _, protein_name in rows})
 
+<<<<<<< Updated upstream
     # One colour per protein, so the same protein always looks the same
     protein_names = sorted({protein_name for ligand_name, protein_name in rows})
     colors = plt.get_cmap("tab10")
@@ -25,13 +42,30 @@ def plot_contact_ranges(ranges, stride=1, dt_ps=None, xlim=None, filename=None):
         name: colors(i % 10)
         for i, name in enumerate(protein_names)
     }
+=======
+    # User-defined colors, with automatic fallback for missing chains.
+    protein_colors = {} if protein_colors is None else dict(protein_colors)
+    fallback = plt.get_cmap("tab10")
+>>>>>>> Stashed changes
 
-    fig, ax = plt.subplots(figsize=(10, 0.4 * len(rows) + 1.5))
+    protein_color = {
+        name: protein_colors.get(name, fallback(i % 10))
+        for i, name in enumerate(protein_names)
+    }
+
+    fig, ax = plt.subplots(
+        figsize=(10, max(2.0, 0.4 * len(rows) + 1.5))
+    )
 
     for row_number, (ligand_name, protein_name) in enumerate(rows):
         bars = []
 
         for start, end, n_frames in ranges[(ligand_name, protein_name)]:
+<<<<<<< Updated upstream
+=======
+            # Include the final sampled interval so one-frame contacts
+            # still have visible width.
+>>>>>>> Stashed changes
             width = end - start + stride
 
             if dt_ps is not None:
@@ -46,18 +80,46 @@ def plot_contact_ranges(ranges, stride=1, dt_ps=None, xlim=None, filename=None):
             color=protein_color[protein_name],
         )
 
+<<<<<<< Updated upstream
     ax.set_yticks(range(len(rows)))
     ax.set_yticklabels([f"{lig} - {prot}" for lig, prot in rows])
     ax.invert_yaxis()
+=======
+    ax.invert_yaxis()
+    
+    ax.set_yticks([])
+    ax.set_yticklabels("")
+>>>>>>> Stashed changes
 
-    ax.set_xlabel("Frame")
-    ax.set_title("Ligand-protein contacts")
+    # ax.set_xlabel("Time (ns)" if dt_ps is not None else "Frame")
+    ax.set_xlabel("Frame", size=16)
+    ax.set_ylabel(f"{ligand_name} in contact", size=16)
+    ax.set_title(f"{ligand_name}-protein contacts")
 
     handles = [
+<<<<<<< Updated upstream
         plt.Rectangle((0, 0), 1, 1, color=protein_color[name])
         for name in protein_names
     ]
     ax.legend(handles, protein_names, title="Protein", loc="upper right")
+=======
+        plt.Rectangle(
+            (0, 0),
+            1,
+            1,
+            color=protein_color[name],
+            label=name,
+        )
+        for name in protein_names
+    ]
+
+    ax.legend(
+        bbox_to_anchor=(1.1, 0.75),
+        handles=handles,
+        title="Ubi",
+        loc="upper right",
+    )
+>>>>>>> Stashed changes
 
     if xlim is not None:
         ax.set_xlim(xlim)
@@ -65,8 +127,12 @@ def plot_contact_ranges(ranges, stride=1, dt_ps=None, xlim=None, filename=None):
     fig.tight_layout()
 
     if filename is not None:
+<<<<<<< Updated upstream
         output_path = Path(filename)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=200)
+=======
+        fig.savefig(filename, dpi=200, bbox_inches="tight", transparent=True)
+>>>>>>> Stashed changes
 
     return fig

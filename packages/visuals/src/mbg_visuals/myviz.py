@@ -1,4 +1,5 @@
 import os
+import re
 from pymol import cmd, util
 from pymol.cgo import *
 
@@ -39,9 +40,384 @@ def _setup_spheres(selection):
     cmd.show("spheres", selection)
     cmd.set("sphere_scale", 0.7, f"({selection}) and name H*")
     cmd.set("sphere_scale", 0.9, f"({selection}) and not name H*")
+    
+    
+def _gaussian_base_name(selection, name=None):
+    """
+    Return an explicit name or derive one from a simple selection.
+
+    Simple object/selection names may contain letters, numbers,
+    underscores, dots, hyphens, and plus signs.
+    """
+    if name is not None and str(name).strip():
+        base_name = str(name).strip()
+    else:
+        selection_name = str(selection).strip()
+
+        if not re.fullmatch(r"[A-Za-z0-9_.+\-]+", selection_name):
+            raise ValueError(
+                "Cannot derive an object name from the complex selection "
+                f"{selection!r}. Provide an explicit name, for example: "
+                "gaussian_surface 'prot and polymer.protein', name=protein"
+            )
+
+        base_name = selection_name
+
+    # Ensure that the generated PyMOL names are safe.
+    base_name = re.sub(r"[^A-Za-z0-9_]+", "_", base_name)
+    base_name = base_name.strip("_")
+
+    if not base_name:
+        raise ValueError("The generated base name is empty.")
+
+    return base_name
+
+
+def _gaussian_safe_label(value, fallback):
+    """Convert a chain or segment identifier into a safe name fragment."""
+    value = str(value).strip()
+
+    if not value:
+        return fallback
+
+    value = re.sub(r"[^A-Za-z0-9_]+", "_", value)
+    value = value.strip("_")
+
+    return value or fallback
+
+
+def _gaussian_identifiers(selection, split_by):
+    """
+    Return the unique chain or segment identifiers in a selection.
+    """
+    identifiers = set()
+
+    if split_by == "chain":
+        cmd.iterate(
+            selection,
+            "identifiers.add(chain)",
+            space={"identifiers": identifiers},
+        )
+
+    elif split_by == "segi":
+        cmd.iterate(
+            selection,
+            "identifiers.add(segi)",
+            space={"identifiers": identifiers},
+        )
+
+    else:
+        raise ValueError(
+            "split_by must be None, 'chain', or 'segi'."
+        )
+
+    # Put blank identifiers last.
+    return sorted(
+        identifiers,
+        key=lambda value: (value == "", value),
+    )
+
+def _copy_uniform_color(source_selection, target_object):
+    """
+    Copy a source selection's color to a target object if all source
+    atoms share one color.
+
+    Returns True if a color was copied, otherwise False.
+    """
+    color_indices = set()
+
+    cmd.iterate(
+        source_selection,
+        "color_indices.add(color)",
+        space={"color_indices": color_indices},
+    )
+
+    if len(color_indices) != 1:
+        return False
+
+    color_index = next(iter(color_indices))
+    rgb = cmd.get_color_tuple(color_index)
+
+    generated_color_name = f"_{target_object}_color"
+    cmd.set_color(generated_color_name, rgb)
+    cmd.color(generated_color_name, target_object)
+
+    return True
 
 
 # --- PUBLIC COMMANDS ---
+@cmd.extend
+def gaussian_surface(
+    selection="all",
+    name=None,
+    split_by=None,
+    b_floor=40.0,
+    resolution=5.0,
+    spacing=0.5,
+    buffer=10.0,
+    level=1.0,
+):
+    """
+    Create one or more Gaussian isosurfaces from a selection.
+
+    Parameters
+    ----------
+    selection : str
+        Source PyMOL atom selection.
+
+    name : str or None
+        Base name for generated objects. If omitted, the name is
+        derived from a simple selection or object name. Complex
+        selections require an explicit name.
+
+    split_by : None, "chain", or "segi"
+        None:
+            Create one Gaussian surface for the complete selection.
+
+        "chain":
+            Create one independent surface per chain identifier.
+
+        "segi":
+            Create one independent surface per segment identifier.
+
+    b_floor : float
+        Minimum B-factor used during Gaussian-map generation.
+        Higher values generally create broader density.
+
+    resolution : float
+        Gaussian-map resolution in Angstroms. Higher values produce
+        smoother and less detailed density.
+
+    spacing : float
+        Map grid spacing in Angstroms. Smaller values produce smoother
+        surface geometry but use more memory.
+
+    buffer : float
+        Extra map-box distance around each source selection, in
+        Angstroms.
+
+    level : float
+        Initial isosurface density threshold. Lower values create
+        broader surfaces; higher values create tighter surfaces.
+
+    Generated names
+    ---------------
+    Combined mode:
+        <name>_gaussian
+        <name>_gaussian_map
+
+    Split mode:
+        <name>_<identifier>_gaussian
+        <name>_<identifier>_gaussian_map
+
+    Groups:
+        <name>_gaussians
+        <name>_gaussian_maps
+
+    Examples
+    --------
+    PyMOL command line:
+
+        gaussian_surface prot
+
+        gaussian_surface prot, split_by=chain
+
+        gaussian_surface prot, name=protein, split_by=segi
+
+        gaussian_surface "prot and polymer.protein", name=protein
+
+        gaussian_surface vesicle, resolution=5, spacing=0.5, \
+            buffer=15, level=1.0
+
+    Python:
+
+        gaussian_surface(
+            selection="all",
+            name=None,
+            split_by=None,
+            b_floor=40.0,
+            resolution=5.0,
+            spacing=1.0,
+            buffer=8.0,
+            level=1.0,
+        )
+
+    Notes
+    -----
+    The function temporarily changes gaussian_b_floor and
+    gaussian_resolution, then restores their previous values.
+
+    The generated map objects are retained so that the surface level
+    can be changed afterward, for example:
+
+        cmd.isolevel("prot_A_gaussian", 1.2)
+    """
+
+    selection = str(selection).strip()
+
+    if not selection:
+        raise ValueError("selection cannot be empty")
+
+    if cmd.count_atoms(selection) == 0:
+        raise ValueError(
+            f"No atoms found in selection: {selection!r}"
+        )
+
+    base_name = _gaussian_base_name(selection, name)
+
+    # PyMOL command-line arguments normally arrive as strings.
+    b_floor = float(b_floor)
+    resolution = float(resolution)
+    spacing = float(spacing)
+    buffer = float(buffer)
+    level = float(level)
+
+    if spacing <= 0:
+        raise ValueError("spacing must be greater than zero")
+
+    if buffer < 0:
+        raise ValueError("buffer cannot be negative")
+
+    if resolution <= 0:
+        raise ValueError("resolution must be greater than zero")
+
+    # Normalize split_by values from the PyMOL command line.
+    if split_by is None:
+        split_by = None
+    else:
+        split_by = str(split_by).strip().lower()
+
+        if split_by in {"", "none", "false", "off", "0"}:
+            split_by = None
+        elif split_by not in {"chain", "segi"}:
+            raise ValueError(
+                "split_by must be None, 'chain', or 'segi'"
+            )
+
+    # Build the list of source selections.
+    # Each item is (identifier label, PyMOL selection).
+    if split_by is None:
+        sources = [(None, selection)]
+
+    else:
+        sources = []
+
+        identifiers = _gaussian_identifiers(
+            selection,
+            split_by,
+        )
+
+        for index, identifier in enumerate(identifiers, start=1):
+            if identifier:
+                source_selection = (
+                    f"({selection}) and {split_by} "
+                    f"{identifier}"
+                )
+                label = _gaussian_safe_label(
+                    identifier,
+                    fallback=f"{split_by}_{index}",
+                )
+            else:
+                # Quoting an empty chain/segi can be awkward across
+                # PyMOL versions. The temporary named selection makes
+                # the expression unambiguous.
+                source_selection = (
+                    f"({selection}) and {split_by} ''"
+                )
+                label = f"blank_{split_by}"
+
+            if cmd.count_atoms(source_selection) > 0:
+                sources.append((label, source_selection))
+
+        if not sources:
+            raise ValueError(
+                f"No valid {split_by} identifiers were found in "
+                f"selection {selection!r}"
+            )
+
+    surface_group = f"{base_name}_gaussians"
+    map_group = f"{base_name}_gaussian_maps"
+
+    created_surfaces = []
+    created_maps = []
+
+    # Store the current global Gaussian settings.
+    old_b_floor = cmd.get("gaussian_b_floor")
+    old_resolution = cmd.get("gaussian_resolution")
+
+    try:
+        cmd.set("gaussian_b_floor", b_floor)
+        cmd.set("gaussian_resolution", resolution)
+
+        for label, source_selection in sources:
+            if label is None:
+                surface_name = f"{base_name}_gaussian"
+                map_name = f"{base_name}_gaussian_map"
+            else:
+                surface_name = (
+                    f"{base_name}_{label}_gaussian"
+                )
+                map_name = (
+                    f"{base_name}_{label}_gaussian_map"
+                )
+
+            # Repeated calls replace generated objects with the same names.
+            cmd.delete(surface_name)
+            cmd.delete(map_name)
+
+            cmd.map_new(
+                map_name,
+                "gaussian",
+                spacing,
+                source_selection,
+                buffer,
+            )
+
+            cmd.isosurface(
+                surface_name,
+                map_name,
+                level,
+            )
+            color_copied = _copy_uniform_color(
+                source_selection,
+                surface_name,
+            )
+
+            if not color_copied:
+                print(
+                    f" Note: {source_selection!r} contains multiple colors; "
+                    f"{surface_name} keeps its default color."
+                )
+
+            created_surfaces.append(surface_name)
+            created_maps.append(map_name)
+
+    finally:
+        # Restore the settings even if map generation raises an error.
+        cmd.set("gaussian_b_floor", old_b_floor)
+        cmd.set("gaussian_resolution", old_resolution)
+
+    # Replace previous groups of the same name.
+    cmd.delete(surface_group)
+    cmd.delete(map_group)
+
+    cmd.group(
+        surface_group,
+        " ".join(created_surfaces),
+    )
+
+    cmd.group(
+        map_group,
+        " ".join(created_maps),
+    )
+
+    # Retain the maps but keep them disabled.
+    cmd.disable(map_group)
+    cmd.rebuild()
+
+    return created_surfaces
+
+
 @cmd.extend
 def color_lipids(selection="not solvent and not polymer.protein"):
     """
