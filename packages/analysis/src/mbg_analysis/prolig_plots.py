@@ -34,19 +34,14 @@ def plot_contact_ranges(
     rows = sorted(ranges)
     protein_names = sorted({protein_name for _, protein_name in rows})
 
-<<<<<<< Updated upstream
     # One colour per protein, so the same protein always looks the same
     protein_names = sorted({protein_name for ligand_name, protein_name in rows})
     colors = plt.get_cmap("tab10")
-    protein_color = {
-        name: colors(i % 10)
-        for i, name in enumerate(protein_names)
-    }
-=======
-    # User-defined colors, with automatic fallback for missing chains.
+    
+        # User-defined colors, with automatic fallback for missing chains.
     protein_colors = {} if protein_colors is None else dict(protein_colors)
     fallback = plt.get_cmap("tab10")
->>>>>>> Stashed changes
+
 
     protein_color = {
         name: protein_colors.get(name, fallback(i % 10))
@@ -61,11 +56,8 @@ def plot_contact_ranges(
         bars = []
 
         for start, end, n_frames in ranges[(ligand_name, protein_name)]:
-<<<<<<< Updated upstream
-=======
             # Include the final sampled interval so one-frame contacts
             # still have visible width.
->>>>>>> Stashed changes
             width = end - start + stride
 
             if dt_ps is not None:
@@ -80,16 +72,10 @@ def plot_contact_ranges(
             color=protein_color[protein_name],
         )
 
-<<<<<<< Updated upstream
-    ax.set_yticks(range(len(rows)))
-    ax.set_yticklabels([f"{lig} - {prot}" for lig, prot in rows])
-    ax.invert_yaxis()
-=======
     ax.invert_yaxis()
     
     ax.set_yticks([])
     ax.set_yticklabels("")
->>>>>>> Stashed changes
 
     # ax.set_xlabel("Time (ns)" if dt_ps is not None else "Frame")
     ax.set_xlabel("Frame", size=16)
@@ -97,12 +83,6 @@ def plot_contact_ranges(
     ax.set_title(f"{ligand_name}-protein contacts")
 
     handles = [
-<<<<<<< Updated upstream
-        plt.Rectangle((0, 0), 1, 1, color=protein_color[name])
-        for name in protein_names
-    ]
-    ax.legend(handles, protein_names, title="Protein", loc="upper right")
-=======
         plt.Rectangle(
             (0, 0),
             1,
@@ -119,7 +99,6 @@ def plot_contact_ranges(
         title="Ubi",
         loc="upper right",
     )
->>>>>>> Stashed changes
 
     if xlim is not None:
         ax.set_xlim(xlim)
@@ -127,12 +106,8 @@ def plot_contact_ranges(
     fig.tight_layout()
 
     if filename is not None:
-<<<<<<< Updated upstream
         output_path = Path(filename)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_path, dpi=200)
-=======
         fig.savefig(filename, dpi=200, bbox_inches="tight", transparent=True)
->>>>>>> Stashed changes
 
     return fig

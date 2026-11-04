@@ -163,14 +163,8 @@ def align_trajectory(
         for index, segment in enumerate(protein_ag.segments):
             chain_id = alphabet[index % len(alphabet)]
             target_atoms = segment.atoms & protein_ag
-
-<<<<<<< Updated upstream
             target_atoms.chainIDs = chain_id
-            target_atoms.segments.segids = f"P{chain_id}"
-=======
-            target_atoms.chainIDs = chain_letter
-            target_atoms.segments.segids = f"{chain_letter}"  # Forces TER boundaries for PyMOL
->>>>>>> Stashed changes
+            target_atoms.segments.segids = f"{chain_id}"
 
         pdb_path = output.with_suffix(".pdb")
         ag.write(str(pdb_path), bonds=None)
