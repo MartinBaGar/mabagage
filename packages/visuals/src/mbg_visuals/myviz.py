@@ -622,6 +622,7 @@ def pic_med():
     """Matte finish with depth/shadows, no outlines."""
     cmd.bg_color("white")
     cmd.set("ray_opaque_background", "off")
+    cmd.set("depth_cue", 0)
     cmd.set("antialias", 2)
 
     # Matte settings
@@ -630,7 +631,8 @@ def pic_med():
     cmd.set("specular", 0.1)
     cmd.set("spec_reflect", 0)
     cmd.set("shininess", 0)
-
+    
+    cmd.set("ray_trace_fog", 0)
     cmd.set("ray_shadow", 1)
     cmd.set("ray_trace_mode", 0)
 
