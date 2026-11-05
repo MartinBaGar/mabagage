@@ -43,6 +43,7 @@ pymol-open-source = "*"
 
 [feature.visuals.pypi-dependencies]
 mbg-visuals = { path = "packages/visuals", editable = true }
+Pillow = "*"
 
 [environments]
 build    = ["build"]
