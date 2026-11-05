@@ -1,5 +1,6 @@
 import os
 import re
+import tempfile
 from pymol import cmd, util
 from pymol.cgo import *
 
@@ -25,6 +26,19 @@ LIPID_BONDS = {
     "GIA0": [("B0", "A1"), ("B1", "A2")],
     "GIA2": [("B0", "A1"), ("B1", "A2")],
     "GIB0": [("B0", "A1"), ("B1", "A2"), ("B2", "A3")],
+}
+
+# --- OUTLINE HELPERS (Private) ---
+_OUTLINE_COLOR_KEYS = (
+    "surface_color", "cartoon_color", "stick_color", "sphere_color",
+    "line_color", "mesh_color", "dot_color", "ribbon_color",
+)
+_OUTLINE_TRANS_KEYS = (
+    "transparency", "cartoon_transparency",
+    "stick_transparency", "sphere_transparency",
+)
+_OUTLINE_RECOLORABLE = {
+    "object:surface", "object:mesh", "object:slice", "object:map",
 }
 
 # Define RGB for maximum precision
@@ -145,7 +159,264 @@ def _copy_uniform_color(source_selection, target_object):
     return True
 
 
+def _outline_force_opaque():
+    """Remove transparency at atom, object and global level."""
+    objects = cmd.get_names("objects")
+    for key in _OUTLINE_TRANS_KEYS:
+        cmd.unset(key, "(all)")
+        for obj in objects:
+            cmd.unset(key, obj)
+        cmd.set(key, 0)
+
+
+def _outline_flat_render(path, selection, white_objects, width, height,
+                         keep_transparency, view):
+    """
+    Render a flat mask: `selection` (and `white_objects`) in white,
+    everything else in black, no shading. Pixel brightness equals
+    the per-pixel visibility of the selection.
+    """
+    if not keep_transparency:
+        _outline_force_opaque()
+
+    # Molecules
+    for key in _OUTLINE_COLOR_KEYS:
+        cmd.set(key, "black", "all")
+        cmd.set(key, "white", selection)
+    cmd.color("black", "all")
+    cmd.color("white", selection)
+    for key in _OUTLINE_TRANS_KEYS:
+        cmd.set(key, 0, selection)       # ligand itself always opaque
+
+    # Non-molecular objects (gaussian surfaces, maps, CGO, measurements...)
+    for obj in cmd.get_names("objects"):
+        obj_type = cmd.get_type(obj)
+        if obj_type == "object:molecule":
+            continue
+        if obj in white_objects:
+            cmd.color("white", obj)
+        elif obj_type in _OUTLINE_RECOLORABLE:
+            cmd.color("black", obj)
+        else:
+            # CGO / measurements carry their own colors: drop them.
+            cmd.disable(obj)
+
+    cmd.bg_color("black")
+    cmd.set("ray_opaque_background", 1)
+    cmd.set("ray_trace_mode", 0)
+    cmd.set("antialias", 0)
+    cmd.set("ray_shadow", 0)
+    cmd.set("ray_trace_fog", 0)
+    cmd.set("depth_cue", 0)
+    cmd.set("ambient", 1)
+    cmd.set("direct", 0)
+    cmd.set("reflect", 0)
+    cmd.set("specular", 0)
+    cmd.set("spec_direct", 0)
+    cmd.set_view(view)
+    cmd.png(path, width, height, ray=1)
+
+
+def _outline_alpha(mask, thickness, offset):
+    """Anti-aliased outline band (0-1) from a boolean mask."""
+    import numpy as np
+    from PIL import Image, ImageChops, ImageFilter
+
+    try:
+        from scipy import ndimage as ndi
+        sd = (ndi.distance_transform_edt(~mask)
+              - ndi.distance_transform_edt(mask))
+        return np.clip(thickness / 2 + 0.5 - np.abs(sd - offset), 0, 1)
+    except ImportError:
+        # PIL fallback: square kernel, no sub-pixel precision.
+        m = Image.fromarray(mask.astype(np.uint8) * 255)
+        k = 2 * int(thickness) + 1
+        if offset < 0:
+            e = ImageChops.subtract(m, m.filter(ImageFilter.MinFilter(k)))
+        elif offset > 0:
+            e = ImageChops.subtract(m.filter(ImageFilter.MaxFilter(k)), m)
+        else:
+            k = int(thickness) + 1 + (int(thickness) % 2 == 0)
+            e = ImageChops.subtract(m.filter(ImageFilter.MaxFilter(k)),
+                                    m.filter(ImageFilter.MinFilter(k)))
+        return np.array(e) / 255.0
+
+
 # --- PUBLIC COMMANDS ---
+@cmd.extend
+def outline_ligand(
+    selection="organic",
+    filename="outline.png",
+    mode="seen",
+    width=1600,
+    height=1200,
+    dpi=300,
+    thickness=6,
+    offset=0,
+    color="black",
+    seen_min=0.15,
+    glass_fade="proportional",
+    extra_white="",
+    keep_temp=0,
+):
+    """
+    Render the current scene with a clean outline around one selection.
+
+    The scene is ray-traced twice from the same camera: once normally,
+    once as a flat black/white visibility mask of the selection. The
+    outline is extracted from the mask and composited on the first
+    render. The session is restored afterwards, even on error.
+
+    Parameters
+    ----------
+    selection : str
+        Atoms to outline (e.g. "organic", "resn UQ* and resi 4980").
+
+    filename : str
+        Output PNG.
+
+    mode : "visible", "seen" or "full"
+        visible : outline only where nothing is in front of the ligand
+                  (transparent reps count as opaque).
+        seen    : outline what the eye sees, including through
+                  transparent reps; hidden behind opaque protein.
+        full    : complete silhouette, even behind the protein.
+
+    width, height : int
+        Image size in pixels (0, 0 = current viewport).
+
+    dpi : int
+        DPI written in the beauty render.
+
+    thickness : float
+        Outline thickness in pixels.
+
+    offset : float
+        <0 inside the silhouette, >0 outside, 0 centered on the edge.
+
+    color : str
+        Outline color (PyMOL color name or 0xRRGGBB).
+
+    seen_min : float
+        "seen" only: minimum ligand visibility (0-1) to get an outline.
+
+    glass_fade : "proportional" or float 0-1
+        "seen" only: outline opacity behind transparent reps.
+        "proportional" = equal to the ligand visibility; 1 = no fade.
+
+    extra_white : str
+        Space/comma separated non-molecular objects to treat as part of
+        the ligand (e.g. a gaussian surface built from it).
+
+    keep_temp : bool
+        Keep the temporary folder (beauty / mask renders) for inspection.
+
+    Examples
+    --------
+        outline_ligand organic, fig.png
+
+        outline_ligand resn UQ* and resi 4980, fig.png, mode=visible, \
+            thickness=4, offset=2, color=cb_vermillion
+
+        outline_ligand organic, fig.png, glass_fade=0.4, \
+            extra_white=lig_gaussian
+
+    Notes
+    -----
+    Requires numpy and Pillow; scipy is optional (smoother, uniform
+    outline). CGO and measurement objects are ignored in the mask.
+    Gaussian surfaces are isosurface objects, so they're correctly painted black (occluding) in the mask, and their object-level transparency is respected in "seen" mode. If you build a gaussian surface of the ligand, pass it via extra_white=lig_gaussian so it counts as ligand.
+    
+    CGO (add_axes) and measurement objects (show_bonds) carry their own colors and can't be reliably recolored, so they're disabled in the mask pass — they still appear in the final image, just never occlude the outline. If you want the axes left out of the figure entirely, disable them before calling.
+    """
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    selection = str(selection).strip()
+    if cmd.count_atoms(selection) == 0:
+        raise ValueError(f"No atoms found in selection: {selection!r}")
+
+    mode = str(mode).strip().lower()
+    if mode not in {"visible", "seen", "full"}:
+        raise ValueError("mode must be 'visible', 'seen' or 'full'")
+
+    width, height, dpi = int(width), int(height), int(dpi)
+    thickness, offset = float(thickness), float(offset)
+    seen_min = float(seen_min)
+    keep_temp = str(keep_temp).lower() not in {"0", "false", "off", ""}
+
+    glass_fade = str(glass_fade).strip().lower()
+    if glass_fade != "proportional":
+        glass_fade = float(glass_fade)
+
+    rgb = tuple(
+        int(round(255 * c))
+        for c in cmd.get_color_tuple(cmd.get_color_index(str(color)))
+    )
+    white_objects = {
+        o for o in re.split(r"[\s,]+", str(extra_white).strip()) if o
+    }
+
+    tmp = tempfile.mkdtemp(prefix="pymol_outline_")
+    sess_f = os.path.join(tmp, "backup.pse")
+    beauty_f = os.path.join(tmp, "beauty.png")
+    mask_f = os.path.join(tmp, "mask.png")
+    not_lig = f"not ({selection})"
+
+    cmd.save(sess_f)
+    view = cmd.get_view()
+
+    try:
+        # 1) Beauty render
+        cmd.png(beauty_f, width, height, dpi=dpi, ray=1)
+
+        # 2) Mask render = per-pixel ligand visibility
+        if mode == "full":
+            cmd.hide("everything", not_lig)
+            for obj in cmd.get_names("objects"):
+                if (cmd.get_type(obj) != "object:molecule"
+                        and obj not in white_objects):
+                    cmd.disable(obj)
+        _outline_flat_render(
+            mask_f, selection, white_objects, width, height,
+            keep_transparency=(mode == "seen"), view=view,
+        )
+        vis = np.array(Image.open(mask_f).convert("RGB")).min(axis=2) / 255.0
+        mask = vis > (seen_min if mode == "seen" else 0.8)
+
+        # 3) Outline band, faded behind glass in "seen" mode
+        alpha = _outline_alpha(mask, thickness, offset)
+        if mode == "seen" and glass_fade != 1:
+            k = 2 * int(thickness + abs(offset)) + 3
+            vis_img = Image.fromarray((vis * 255).astype(np.uint8))
+            vis_band = np.array(vis_img.filter(ImageFilter.MaxFilter(k))) / 255.0
+            if glass_fade == "proportional":
+                fade = vis_band
+            else:
+                fade = np.where(vis_band < 0.98, glass_fade, 1.0)
+            alpha = alpha * fade
+
+        layer = np.zeros((*mask.shape, 4), dtype=np.uint8)
+        layer[..., :3] = rgb
+        layer[..., 3] = (alpha * 255).astype(np.uint8)
+
+        # 4) Composite
+        beauty = Image.open(beauty_f).convert("RGBA")
+        Image.alpha_composite(beauty, Image.fromarray(layer, "RGBA")).save(filename)
+        print(f" Outline saved: {os.path.abspath(filename)}")
+        if keep_temp:
+            print(f" Temp renders kept in: {tmp}")
+
+    finally:
+        cmd.load(sess_f)
+        if not keep_temp:
+            for f in (sess_f, beauty_f, mask_f):
+                if os.path.exists(f):
+                    os.remove(f)
+            os.rmdir(tmp)
+
+    return os.path.abspath(filename)
+
 @cmd.extend
 def gaussian_surface(
     selection="all",
